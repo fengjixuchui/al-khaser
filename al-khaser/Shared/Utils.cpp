@@ -17,9 +17,26 @@ BOOL IsWoW64()
 	return bIsWow64;
 }
 
+PVOID64 GetPeb64()
+{
+	PVOID64 peb64 = NULL;
+
+	if (API::IsAvailable(API_IDENTIFIER::API_NtWow64QueryInformationProcess64))
+	{
+		PROCESS_BASIC_INFORMATION_WOW64 pbi64 = {};
+
+		auto NtWow64QueryInformationProcess64 = static_cast<pNtWow64QueryInformationProcess64>(API::GetAPI(API_IDENTIFIER::API_NtWow64QueryInformationProcess64));
+		NTSTATUS status = NtWow64QueryInformationProcess64(GetCurrentProcess(), ProcessBasicInformation, &pbi64, sizeof(pbi64), nullptr);
+		if ( NT_SUCCESS ( status ) )
+			peb64 = pbi64.PebBaseAddress;
+	}
+
+	return peb64;
+}
+
 BOOL Is_RegKeyValueExists(HKEY hKey, const TCHAR* lpSubKey, const TCHAR* lpValueName, const TCHAR* search_str)
 {
-	HKEY hkResult = FALSE;
+	HKEY hkResult = NULL;
 	TCHAR lpData[1024] = { 0 };
 	DWORD cbData = MAX_PATH;
 
@@ -41,7 +58,7 @@ BOOL Is_RegKeyValueExists(HKEY hKey, const TCHAR* lpSubKey, const TCHAR* lpValue
 
 BOOL Is_RegKeyExists(HKEY hKey, const TCHAR* lpSubKey)
 {
-	HKEY hkResult = FALSE;
+	HKEY hkResult = NULL;
 	TCHAR lpData[1024] = { 0 };
 	DWORD cbData = MAX_PATH;
 
@@ -69,7 +86,7 @@ BOOL is_DirectoryExists(TCHAR* szPath)
 BOOL check_mac_addr(const TCHAR* szMac)
 {
 	BOOL bResult = FALSE;
-	PIP_ADAPTER_INFO pAdapterInfo;
+	PIP_ADAPTER_INFO pAdapterInfo, pAdapterInfoPtr;
 	ULONG ulOutBufLen = sizeof(IP_ADAPTER_INFO);
 
 	pAdapterInfo = (PIP_ADAPTER_INFO)MALLOC(sizeof(IP_ADAPTER_INFO));
@@ -79,8 +96,10 @@ BOOL check_mac_addr(const TCHAR* szMac)
 		return -1;
 	}
 
+	DWORD dwResult = GetAdaptersInfo(pAdapterInfo, &ulOutBufLen);
+
 	// Make an initial call to GetAdaptersInfo to get the necessary size into the ulOutBufLen variable
-	if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == ERROR_BUFFER_OVERFLOW)
+	if (dwResult == ERROR_BUFFER_OVERFLOW)
 	{
 		FREE(pAdapterInfo);
 		pAdapterInfo = (PIP_ADAPTER_INFO)MALLOC(ulOutBufLen);
@@ -88,10 +107,12 @@ BOOL check_mac_addr(const TCHAR* szMac)
 			printf("Error allocating memory needed to call GetAdaptersinfo\n");
 			return 1;
 		}
+
+		// Now, we can call GetAdaptersInfo
+		dwResult = GetAdaptersInfo(pAdapterInfo, &ulOutBufLen);
 	}
 
-	// Now, we can call GetAdaptersInfo
-	if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == ERROR_SUCCESS)
+	if (dwResult == ERROR_SUCCESS)
 	{
 		// Convert the given mac address to an array of multibyte chars so we can compare.
 		CHAR szMacMultiBytes[4];
@@ -99,17 +120,21 @@ BOOL check_mac_addr(const TCHAR* szMac)
 			szMacMultiBytes[i] = (CHAR)szMac[i];
 		}
 
-		while (pAdapterInfo)
+		pAdapterInfoPtr = pAdapterInfo;
+
+		while (pAdapterInfoPtr)
 		{
 
-			if (pAdapterInfo->AddressLength == 6 && !memcmp(szMacMultiBytes, pAdapterInfo->Address, 3))
+			if (pAdapterInfoPtr->AddressLength == 6 && !memcmp(szMacMultiBytes, pAdapterInfoPtr->Address, 3))
 			{
 				bResult = TRUE;
 				break;
 			}
-			pAdapterInfo = pAdapterInfo->Next;
+			pAdapterInfoPtr = pAdapterInfoPtr->Next;
 		}
 	}
+
+	FREE(pAdapterInfo);
 
 	return bResult;
 }
@@ -117,8 +142,10 @@ BOOL check_mac_addr(const TCHAR* szMac)
 BOOL check_adapter_name(const TCHAR* szName)
 {
 	BOOL bResult = FALSE;
-	PIP_ADAPTER_INFO pAdapterInfo;
+	PIP_ADAPTER_INFO pAdapterInfo, pAdapterInfoPtr;
 	ULONG ulOutBufLen = sizeof(IP_ADAPTER_INFO);
+
+	WCHAR *pwszConverted;
 
 	pAdapterInfo = (PIP_ADAPTER_INFO)MALLOC(sizeof(IP_ADAPTER_INFO));
 	if (pAdapterInfo == NULL)
@@ -128,7 +155,10 @@ BOOL check_adapter_name(const TCHAR* szName)
 	}
 
 	// Make an initial call to GetAdaptersInfo to get the necessary size into the ulOutBufLen variable
-	if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == ERROR_BUFFER_OVERFLOW)
+
+	DWORD dwResult = GetAdaptersInfo(pAdapterInfo, &ulOutBufLen);
+
+	if (dwResult == ERROR_BUFFER_OVERFLOW)
 	{
 		FREE(pAdapterInfo);
 		pAdapterInfo = (PIP_ADAPTER_INFO)MALLOC(ulOutBufLen);
@@ -136,20 +166,32 @@ BOOL check_adapter_name(const TCHAR* szName)
 			printf("Error allocating memory needed to call GetAdaptersinfo\n");
 			return 1;
 		}
+
+		dwResult = GetAdaptersInfo(pAdapterInfo, &ulOutBufLen);
 	}
 
-	if (GetAdaptersInfo(pAdapterInfo, &ulOutBufLen) == ERROR_SUCCESS)
+	if (dwResult == ERROR_SUCCESS)
 	{
-		while (pAdapterInfo)
+		pAdapterInfoPtr = pAdapterInfo;
+
+		while (pAdapterInfoPtr)
 		{
-			if (StrCmpI(ascii_to_wide_str(pAdapterInfo->Description), szName) == 0)
-			{
-				bResult = TRUE;
-				break;
+			pwszConverted = ascii_to_wide_str(pAdapterInfoPtr->Description);
+			if (pwszConverted) {
+				if (StrCmpI(pwszConverted, szName) == 0)
+				{
+					bResult = TRUE;
+				}
+				free(pwszConverted);
+
+				if (bResult)
+					break;
 			}
-			pAdapterInfo = pAdapterInfo->Next;
+			pAdapterInfoPtr = pAdapterInfoPtr->Next;
 		}
 	}
+
+	FREE(pAdapterInfo);
 
 	return bResult;
 }
@@ -378,7 +420,7 @@ BOOL GetOSDisplayString(LPTSTR pszOS)
 
 		TCHAR buf[80];
 
-		StringCchPrintf(buf, 80, TEXT(" (build %d)"), osvi.dwBuildNumber);
+		StringCchPrintf(buf, 80, TEXT(" (build %u)"), osvi.dwBuildNumber);
 		StringCchCat(pszOS, MAX_PATH, buf);
 
 		if (osvi.dwMajorVersion >= 6)
@@ -427,6 +469,8 @@ DWORD GetProccessIDByName(TCHAR* szProcessNameTarget)
 		{
 			EnumProcessModules(hProcess, &hMod, sizeof(hMod), &cbNeeded);
 			GetModuleBaseName(hProcess, hMod, szProcessName, sizeof(szProcessName) / sizeof(TCHAR));
+
+			CloseHandle(hProcess);
 
 			// Make the comparaison
 			if (StrCmpI(szProcessName, szProcessNameTarget) == 0)
@@ -495,35 +539,29 @@ BOOL SetPrivilege(
 BOOL SetDebugPrivileges(VOID) {
 	TOKEN_PRIVILEGES priv = { 0 };
 	HANDLE hToken = NULL;
+	BOOL bResult = FALSE;
 
-	if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
-	{
-		priv.PrivilegeCount = 1;
-		priv.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+	if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+		print_last_error(_T("OpenProcessToken"));
+		return bResult;
+	}
 
-		if (LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &priv.Privileges[0].Luid))
-			if (AdjustTokenPrivileges(hToken, FALSE, &priv, 0, NULL, NULL) == 0) {
-				print_last_error(_T("AdjustTokenPrivileges"));
-				CloseHandle(hToken);
-				return 0;
-			}
+	priv.PrivilegeCount = 1;
+	priv.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 
-			else
-				return 1;
-
-		else {
-			print_last_error(_T("LookupPrivilegeValue"));
-			CloseHandle(hToken);
-			return 0;
+	if (LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &priv.Privileges[0].Luid)) {
+		
+		bResult = AdjustTokenPrivileges(hToken, FALSE, &priv, 0, NULL, NULL);
+		if (!bResult) {
+			print_last_error(_T("AdjustTokenPrivileges"));
 		}
 	}
-
-	else
-	{
-		print_last_error(_T("OpenProcessToken"));
-		CloseHandle(hToken);
-		return 0;
+	else {
+		print_last_error(_T("LookupPrivilegeValue"));
 	}
+
+	CloseHandle(hToken);
+	return bResult;
 }
 
 DWORD GetProcessIdFromName(LPCTSTR szProcessName)
@@ -642,13 +680,19 @@ BOOL InitWMI(IWbemServices **pSvc, IWbemLocator **pLoc, const TCHAR* szNetworkRe
 		return 0;
 	}
 
-	// Connect to the root\cimv2 namespace 
-	hres = (*pLoc)->ConnectServer(BSTR(szNetworkResource), NULL, NULL, 0, NULL, 0, 0, pSvc);
-	if (FAILED(hres)) {
-		print_last_error(_T("ConnectServer"));
-		(*pLoc)->Release();
-		CoUninitialize();
-		return 0;
+	BSTR strNetworkResource = SysAllocString(szNetworkResource);
+	if (strNetworkResource) {
+
+		// Connect to the root\cimv2 namespace 
+		hres = (*pLoc)->ConnectServer(strNetworkResource, NULL, NULL, NULL, WBEM_FLAG_CONNECT_USE_MAX_WAIT, 0, 0, pSvc);
+		if (FAILED(hres)) {
+			SysFreeString(strNetworkResource);
+			print_last_error(_T("ConnectServer"));
+			(*pLoc)->Release();
+			CoUninitialize();
+			return 0;
+		}
+		SysFreeString(strNetworkResource);
 	}
 
 	// Set security levels on the proxy -------------------------
@@ -668,20 +712,31 @@ BOOL InitWMI(IWbemServices **pSvc, IWbemLocator **pLoc, const TCHAR* szNetworkRe
 BOOL ExecWMIQuery(IWbemServices **pSvc, IWbemLocator **pLoc, IEnumWbemClassObject **pEnumerator, const TCHAR* szQuery)
 {
 	// Execute WMI query
-	HRESULT hres = (*pSvc)->ExecQuery(BSTR("WQL"), BSTR(szQuery),
-		WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
-		NULL, pEnumerator);
+	BSTR strQueryLanguage = SysAllocString(OLESTR("WQL"));
+	BSTR strQuery = SysAllocString(szQuery);
 
-	if (FAILED(hres))
-	{
-		print_last_error(_T("ExecQuery"));
-		(*pSvc)->Release();
-		(*pLoc)->Release();
-		CoUninitialize();
-		return 0;
+	BOOL bQueryResult = TRUE;
+
+	if (strQueryLanguage && strQuery) {
+
+		HRESULT hres = (*pSvc)->ExecQuery(strQueryLanguage, strQuery,
+			WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+			NULL, pEnumerator);
+
+		if (FAILED(hres)) {
+			bQueryResult = FALSE;
+			print_last_error(_T("ExecQuery"));
+			(*pSvc)->Release();
+			(*pLoc)->Release();
+			CoUninitialize();
+		}
+
 	}
 
-	return 1;
+	if (strQueryLanguage) SysFreeString(strQueryLanguage);
+	if (strQuery) SysFreeString(strQuery);
+
+	return bQueryResult;
 }
 
 
@@ -743,21 +798,6 @@ ULONG get_gdt_base()
 }
 
 
-UCHAR* get_str_base()
-{
-	// get the selector segment of the TR register which points into
-	// the TSS of the present task. 
-
-	UCHAR mem[4] = { 0, 0, 0, 0 };
-
-#if defined (ENV32BIT)
-	__asm str mem;
-#endif
-
-	// printf("STR base: 0x%02x%02x%02x%02x\n", mem[0], mem[1], mem[2], mem[3]);
-	return mem;
-}
-
 /*
 Check if a process is running with admin rights
 */
@@ -813,6 +853,10 @@ PBYTE get_system_firmware(_In_ DWORD signature, _In_ DWORD table, _Out_ PDWORD p
 
 	DWORD bufferSize = 4096;
 	PBYTE firmwareTable = static_cast<PBYTE>(malloc(bufferSize));
+
+	if (firmwareTable == NULL)
+		return NULL;
+
 	SecureZeroMemory(firmwareTable, bufferSize);
 	
 	auto GetSystemFirmwareTable = static_cast<pGetSystemFirmwareTable>(API::GetAPI(API_IDENTIFIER::API_GetSystemFirmwareTable));
@@ -828,13 +872,18 @@ PBYTE get_system_firmware(_In_ DWORD signature, _In_ DWORD table, _Out_ PDWORD p
 	// if the buffer was too small, realloc and try again
 	if (resultBufferSize > bufferSize)
 	{
-		firmwareTable = static_cast<BYTE*>(realloc(firmwareTable, resultBufferSize));
-		SecureZeroMemory(firmwareTable, resultBufferSize);
-		if (GetSystemFirmwareTable(signature, table, firmwareTable, resultBufferSize) == 0)
-		{
-			printf("Second call failed :(\n");
-			free(firmwareTable);
-			return NULL;
+		PBYTE tmp;
+
+		tmp = static_cast<BYTE*>(realloc(firmwareTable, resultBufferSize));
+		if (tmp) {
+			firmwareTable = tmp;
+			SecureZeroMemory(firmwareTable, resultBufferSize);
+			if (GetSystemFirmwareTable(signature, table, firmwareTable, resultBufferSize) == 0)
+			{
+				printf("Second call failed :(\n");
+				free(firmwareTable);
+				return NULL;
+			}
 		}
 	}
 
@@ -858,7 +907,7 @@ bool attempt_to_read_memory_wow64(PVOID buffer, DWORD size, PVOID64 address)
 
 	HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, GetCurrentProcessId());
 
-	if (hProcess != INVALID_HANDLE_VALUE)
+	if (hProcess != NULL)
 	{
 		NTSTATUS status = NtWow64ReadVirtualMemory64(hProcess, address, buffer, size, &bytesRead);
 		/*if (status != 0)
@@ -869,7 +918,7 @@ bool attempt_to_read_memory_wow64(PVOID buffer, DWORD size, PVOID64 address)
 		return status == 0;
 	}
 
-	printf("attempt_to_read_memory_wow64: Couldn't open process: %d\n", GetLastError());
+	printf("attempt_to_read_memory_wow64: Couldn't open process: %u\n", GetLastError());
 	return false;
 }
 

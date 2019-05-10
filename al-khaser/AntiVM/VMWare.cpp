@@ -198,7 +198,7 @@ VOID vmware_processes()
 	for (int i = 0; i < iLength; i++)
 	{
 		TCHAR msg[256] = _T("");
-		_stprintf_s(msg, sizeof(msg) / sizeof(TCHAR), _T("Checking vmware processe %s "), szProcesses[i]);
+		_stprintf_s(msg, sizeof(msg) / sizeof(TCHAR), _T("Checking VWware process %s "), szProcesses[i]);
 		if (GetProcessIdFromName(szProcesses[i]))
 			print_results(TRUE, msg);
 		else
@@ -240,6 +240,10 @@ BOOL vmware_firmware_ACPI()
 	BOOL result = FALSE;
 
 	PDWORD tableNames = static_cast<PDWORD>(malloc(4096));
+
+	if (tableNames == NULL)
+		return FALSE;
+
 	SecureZeroMemory(tableNames, 4096);
 	DWORD tableSize = enum_system_firmware_tables(static_cast<DWORD>('ACPI'), tableNames, 4096);
 
@@ -258,15 +262,17 @@ BOOL vmware_firmware_ACPI()
 			DWORD tableSize = 0;
 			PBYTE table = get_system_firmware(static_cast<DWORD>('ACPI'), tableNames[i], &tableSize);
 
-			PBYTE vmwareString = (PBYTE)"VMWARE";
-			size_t vmwwareStringLen = 6;
+			if (table) {
 
+				PBYTE vmwareString = (PBYTE)"VMWARE";
+				size_t vmwwareStringLen = 6;
 
-			if (find_str_in_data(vmwareString, vmwwareStringLen, table, tableSize)) {
-				result = TRUE;
+				if (find_str_in_data(vmwareString, vmwwareStringLen, table, tableSize)) {
+					result = TRUE;
+				}
+
+				free(table);
 			}
-
-			free(table);
 		}
 	}
 

@@ -1,7 +1,6 @@
 #include "pch.h"
 #include "log.h"
 
-FILE *fp;
 static int SESSION_TRACKER; //Keeps track of session
 
 TCHAR* print_time()
@@ -30,15 +29,15 @@ TCHAR* print_time()
 	}
 
 	//Getting rid of \n
-	timestr[_tcsclen(timestr) - 1] = 0;  
+	timestr[_tcsclen(timestr) - 1] = 0;
 
 	//Additional +2 for square braces
-	size = (_tcsclen(timestr) + 1 + 2) * sizeof(TCHAR); 
+	size = (_tcsclen(timestr) + 1 + 2) * sizeof(TCHAR);
 	buf = (TCHAR*)malloc(size);
-
-	memset(buf, 0x0, size);
-	_stprintf_s(buf, size,_T("[%s]"), timestr);
-
+	if (buf) {
+		memset(buf, 0x0, size);
+		_stprintf_s(buf, size / sizeof(TCHAR), _T("[%s]"), timestr);
+	}
 	return buf;
 }
 void log_print(const TCHAR* filename, const TCHAR *fmt, ...)
@@ -47,12 +46,25 @@ void log_print(const TCHAR* filename, const TCHAR *fmt, ...)
 	const TCHAR *p, *r;
 	int e;
 
-	if (SESSION_TRACKER > 0)
-		_tfopen_s(&fp, _T("log.txt"), _T("a+"));
-	else
-		_tfopen_s(&fp, _T("log.txt"), _T("w"));
+	FILE *fp = NULL;
+	errno_t error;
 
-	_ftprintf(fp, _T("%s "), print_time());
+	TCHAR *pszTime;
+
+	if (SESSION_TRACKER > 0)
+		error = _tfopen_s(&fp, _T("log.txt"), _T("a+"));
+	else
+		error = _tfopen_s(&fp, _T("log.txt"), _T("w"));
+
+	// file create/open failed
+	if ((error != 0) || (fp == NULL))
+		return;
+
+	pszTime = print_time();
+	if (pszTime) {
+		_ftprintf(fp, _T("%s "), pszTime);
+		free(pszTime);
+	}
 	va_start(list, fmt);
 
 	for (p = fmt; *p; ++p)

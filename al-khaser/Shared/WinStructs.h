@@ -27,6 +27,14 @@ typedef struct _THREAD_BASIC_INFORMATION {
 	KPRIORITY               BasePriority;
 } THREAD_BASIC_INFORMATION, *PTHREAD_BASIC_INFORMATION;
 
+typedef struct _PROCESS_BASIC_INFORMATION_WOW64 {
+	PVOID Reserved1[2];
+	PVOID64 PebBaseAddress;
+	PVOID Reserved2[4];
+	ULONG_PTR UniqueProcessId[2];
+	PVOID Reserved3[2];
+} PROCESS_BASIC_INFORMATION_WOW64;
+
 typedef struct _PEB64 {
 	BYTE Reserved1[2];
 	BYTE BeingDebugged;
@@ -69,6 +77,45 @@ typedef struct _LDR_DATA_TABLE_ENTRY64 {
 	} DUMMYUNIONNAME;
 	ULONG TimeDateStamp;
 } LDR_DATA_TABLE_ENTRY64, *PLDR_DATA_TABLE_ENTRY64;
+
+/*++ NtCreateThreadEx specific */
+
+typedef struct _PS_ATTRIBUTE {
+	ULONG Attribute;
+	SIZE_T Size;
+	union
+	{
+		ULONG Value;
+		PVOID ValuePtr;
+	} u1;
+	PSIZE_T ReturnLength;
+} PS_ATTRIBUTE, *PPS_ATTRIBUTE;
+
+typedef struct _PS_ATTRIBUTE_LIST {
+	SIZE_T TotalLength;
+	PS_ATTRIBUTE Attributes[1];
+} PS_ATTRIBUTE_LIST, *PPS_ATTRIBUTE_LIST;
+
+#define PS_ATTRIBUTE_NUMBER_MASK 0x0000ffff
+#define PS_ATTRIBUTE_THREAD 0x00010000
+#define PS_ATTRIBUTE_INPUT 0x00020000
+#define PS_ATTRIBUTE_ADDITIVE 0x00040000
+
+#define PsAttributeValue(Number, Thread, Input, Additive) \
+	(((Number) & PS_ATTRIBUTE_NUMBER_MASK) | \
+	((Thread) ? PS_ATTRIBUTE_THREAD : 0) | \
+	((Input) ? PS_ATTRIBUTE_INPUT : 0) | \
+	((Additive) ? PS_ATTRIBUTE_ADDITIVE : 0))
+
+typedef enum _PS_ATTRIBUTE_NUM {
+	PsAttributeClientId = 3,
+} PS_ATTRIBUTE_NUM;
+
+#define PS_ATTRIBUTE_CLIENT_ID \
+    PsAttributeValue(PsAttributeClientId, TRUE, FALSE, FALSE)
+
+/* NtCreateThreadEx specific --*/
+
 
 typedef VOID(NTAPI LDR_ENUM_CALLBACK)(_In_ PLDR_DATA_TABLE_ENTRY ModuleInformation, _In_ PVOID Parameter, _Out_ BOOLEAN *Stop);
 typedef LDR_ENUM_CALLBACK *PLDR_ENUM_CALLBACK;

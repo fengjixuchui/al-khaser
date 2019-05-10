@@ -21,27 +21,46 @@ typedef DWORD(WINAPI * pRtlCreateUserThread)(
 typedef NTSTATUS(WINAPI* pNtClose)(HANDLE);
 typedef NTSTATUS(WINAPI *pNtCreateDebugObject)(OUT PHANDLE, IN ACCESS_MASK, IN POBJECT_ATTRIBUTES, IN ULONG);
 typedef NTSTATUS(WINAPI *pNtCreateThreadEx)(
-	OUT PHANDLE hThread,
+	OUT PHANDLE ThreadHandle,
 	IN ACCESS_MASK DesiredAccess,
-	IN LPVOID ObjectAttributes,
+	IN OPTIONAL POBJECT_ATTRIBUTES ObjectAttributes,
 	IN HANDLE ProcessHandle,
-	IN LPTHREAD_START_ROUTINE lpStartAddress,
-	IN LPVOID lpParameter,
-	IN BOOL CreateSuspended,
-	IN DWORD StackZeroBits,
-	IN DWORD SizeOfStackCommit,
-	IN DWORD SizeOfStackReserve,
-	OUT LPVOID lpBytesBuffer
+	IN PVOID StartRoutine,
+	IN OPTIONAL PVOID Argument,
+	IN ULONG CreateFlags, //THREAD_CREATE_FLAGS_*
+	IN OPTIONAL ULONG_PTR ZeroBits,
+	IN OPTIONAL SIZE_T StackSize,
+	IN OPTIONAL SIZE_T MaximumStackSize,
+	IN OPTIONAL PPS_ATTRIBUTE_LIST AttributeList
 	);
 typedef NTSTATUS(WINAPI *pNtDelayExecution)(IN BOOLEAN, IN PLARGE_INTEGER);
 typedef NTSTATUS(WINAPI *pNtQueryInformationProcess)(IN  HANDLE, IN  UINT, OUT PVOID, IN ULONG, OUT PULONG);
 typedef NTSTATUS(WINAPI *pNtQueryInformationThread)(HANDLE, UINT, PVOID, ULONG, PULONG);
+
+typedef NTSTATUS(NTAPI *pNtQueryLicenseValue)(
+	IN PUNICODE_STRING ValueName,
+	OUT OPTIONAL PULONG Type,
+	OUT PVOID Data,
+	IN ULONG DataSize,
+	OUT PULONG ResultDataSize);
+
+typedef VOID (NTAPI *pRtlInitUnicodeString)(
+	_Out_ PUNICODE_STRING DestinationString,
+	_In_opt_ PCWSTR SourceString);
+
 typedef NTSTATUS(WINAPI *pNtQueryObject)(IN HANDLE, IN UINT, OUT PVOID, IN ULONG, OUT PULONG);
 typedef NTSTATUS(WINAPI *pNtQuerySystemInformation)(IN UINT, OUT PVOID, IN ULONG, OUT PULONG);
 typedef NTSTATUS(WINAPI *pNtSetInformationThread)(HANDLE, UINT, PVOID, ULONG);
 typedef NTSTATUS(WINAPI* pNtUnmapViewOfSection)(HANDLE ProcessHandle, PVOID BaseAddress);
 typedef NTSTATUS(WINAPI* pNtYieldExecution)();
 typedef NTSTATUS(WINAPI* pRtlGetVersion)(RTL_OSVERSIONINFOEXW*);
+typedef ULONG (NTAPI* pRtlNtStatusToDosError)(IN NTSTATUS Status);
+typedef NTSTATUS(NTAPI * pNtWow64QueryInformationProcess64)(
+    IN HANDLE ProcessHandle,
+    ULONG ProcessInformationClass,
+    OUT PVOID ProcessInformation,
+    IN ULONG ProcessInformationLength,
+    OUT PULONG ReturnLength OPTIONAL);
 typedef NTSTATUS(WINAPI *pNtWow64ReadVirtualMemory64)(
 	HANDLE ProcessHandle,
 	PVOID64 BaseAddress,

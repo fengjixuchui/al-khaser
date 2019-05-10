@@ -23,7 +23,7 @@ VOID loaded_dlls()
 		_T("vmcheck.dll"),		// Virtual PC
 		_T("wpespy.dll"),		// WPE Pro
 		_T("cmdvrt64.dll"),		// Comodo Container
-        _T("cmdvrt32.dll"),		// Comodo Container
+		_T("cmdvrt32.dll"),		// Comodo Container
 
 	};
 
@@ -59,7 +59,7 @@ BOOL NumberOfProcessors()
 	PULONG ulNumberProcessors = (PULONG)(__readgsqword(0x60) + 0xB8);
 
 #elif defined(ENV32BIT)
-	PULONG ulNumberProcessors = (PULONG)(__readfsdword(0x30) + 0x64) ;
+	PULONG ulNumberProcessors = (PULONG)(__readfsdword(0x30) + 0x64);
 
 #endif
 
@@ -81,7 +81,7 @@ PS: Does not seem to work on newer version of VMWare Workstation (Tested on v12)
 BOOL idt_trick()
 {
 	UINT idt_base = get_idt_base();
-	if ((idt_base >> 24) == 0xff) 
+	if ((idt_base >> 24) == 0xff)
 		return TRUE;
 
 	else
@@ -89,15 +89,15 @@ BOOL idt_trick()
 }
 
 /*
-Same for Local Descriptor Table (LDT) 
+Same for Local Descriptor Table (LDT)
 */
 BOOL ldt_trick()
 {
 	UINT ldt_base = get_ldt_base();
 
-	if (ldt_base == 0xdead0000) 
+	if (ldt_base == 0xdead0000)
 		return FALSE;
-	else 
+	else
 		return TRUE; // VMWare detected	
 }
 
@@ -121,7 +121,7 @@ BOOL gdt_trick()
 The instruction STR (Store Task Register) stores the selector segment of the TR
 register (Task Register) in the specified operand (memory or other general purpose register).
 All x86 processors can manage tasks in the same way as an operating system would do it.
-That is, keeping the task state and recovering it when that task is executed again. All 
+That is, keeping the task state and recovering it when that task is executed again. All
 the states of a task are kept in its TSS; there is one TSS per task. How can we know which
 is the TSS associated to the execution task? Using STR instruction, due to the fact that
 the selector segment that was brought back points into the TSS of the present task.
@@ -131,7 +131,11 @@ mechanism of a unique instruction in assembler to detect virtual machines.
 */
 BOOL str_trick()
 {
-	UCHAR *mem = get_str_base();
+	UCHAR mem[4] = { 0, 0, 0, 0 };
+
+#if defined (ENV32BIT)
+	__asm str mem;
+#endif
 
 	if ((mem[0] == 0x00) && (mem[1] == 0x40))
 		return TRUE; // VMWare detected	
@@ -174,17 +178,25 @@ BOOL number_cores_wmi()
 
 				// Get the value of the Name property
 				hRes = pclsObj->Get(_T("NumberOfCores"), 0, &vtProp, 0, 0);
-				if (V_VT(&vtProp) != VT_NULL) {
+				if (SUCCEEDED(hRes)) {
+					if (V_VT(&vtProp) != VT_NULL) {
 
-					// Do our comparaison
-					if (vtProp.uintVal < 2) {
-						bFound = TRUE; break;
+						// Do our comparaison
+						if (vtProp.uintVal < 2) {
+							bFound = TRUE;
+						}
+
+						// release the current result object
+						VariantClear(&vtProp);
 					}
-
-					// release the current result object
-					VariantClear(&vtProp);
-					pclsObj->Release();
 				}
+
+				// release class object
+				pclsObj->Release();
+
+				// break from while
+				if (bFound)
+					break;
 			}
 
 			// Cleanup
@@ -234,25 +246,32 @@ BOOL disk_size_wmi()
 
 				// Get the value of the Name property
 				hRes = pclsObj->Get(_T("Size"), 0, &vtProp, NULL, 0);
-				if (V_VT(&vtProp) != VT_NULL)
-				{
-					// convert disk size string to bytes
-					errno = 0;
-					unsigned long long diskSizeBytes = _tcstoui64_l(vtProp.bstrVal, NULL, 10, _get_current_locale());
-					// do the check only if we successfuly got the disk size
-					if (errno == 0)
+				if (SUCCEEDED(hRes)) {
+					if (V_VT(&vtProp) != VT_NULL)
 					{
-						// Do our comparison
-						if (diskSizeBytes < minHardDiskSize) { // Less than 80GB
-							bFound = TRUE;
-							break;
+						// convert disk size string to bytes
+						errno = 0;
+						unsigned long long diskSizeBytes = _tcstoui64_l(vtProp.bstrVal, NULL, 10, _get_current_locale());
+						// do the check only if we successfuly got the disk size
+						if (errno == 0)
+						{
+							// Do our comparison
+							if (diskSizeBytes < minHardDiskSize) { // Less than 80GB
+								bFound = TRUE;
+							}
 						}
-					}
 
-					// release the current result object
-					VariantClear(&vtProp);
-					pclsObj->Release();
+						// release the current result object
+						VariantClear(&vtProp);
+					}
 				}
+
+				// release class object
+				pclsObj->Release();
+
+				// break from while
+				if (bFound)
+					break;
 			}
 
 			// Cleanup
@@ -295,7 +314,8 @@ BOOL dizk_size_deviceiocontrol()
 	wchar_t winDirBuffer[MAX_PATH];
 	SecureZeroMemory(winDirBuffer, MAX_PATH);
 	UINT winDirLen = GetSystemWindowsDirectory(winDirBuffer, MAX_PATH);
-	if (winDirLen != 0)
+
+	if (winDirLen)
 	{
 		// get the drive number (0-25 for A-Z) associated with the directory
 		int driveNumber = PathGetDriveNumber(winDirBuffer);
@@ -304,45 +324,39 @@ BOOL dizk_size_deviceiocontrol()
 			// convert the drive number to a root path (e.g. C:\)
 			wchar_t driveRootPathBuffer[MAX_PATH];
 			SecureZeroMemory(driveRootPathBuffer, MAX_PATH);
-			wchar_t* rootPath = PathBuildRoot(driveRootPathBuffer, driveNumber);
-			if (rootPath != NULL)
+
+			wnsprintf(driveRootPathBuffer, MAX_PATH, _T("\\\\.\\%C:"), _T('A') + driveNumber);
+
+			// open a handle to the volume
+			HANDLE hVolume = CreateFile(
+				driveRootPathBuffer,
+				GENERIC_READ,
+				FILE_SHARE_READ | FILE_SHARE_WRITE,
+				NULL,
+				OPEN_EXISTING,
+				FILE_FLAG_BACKUP_SEMANTICS,
+				NULL);
+
+			if (hVolume != INVALID_HANDLE_VALUE)
 			{
-				// open a handle to the drive
-				HANDLE hDrive = CreateFile(
-					rootPath,
-					GENERIC_READ,
-					FILE_SHARE_READ,
-					NULL,
-					OPEN_EXISTING,
-					0,
-					NULL
-				);
-				if (hDrive != INVALID_HANDLE_VALUE)
-				{
-					// allocate enough space to describe a 256-disk array
-					// it would be weird to have more!
-					const int extentSize = sizeof(VOLUME_DISK_EXTENTS) + (sizeof(DISK_EXTENT) * 256);
-					auto diskExtents = static_cast<VOLUME_DISK_EXTENTS*>(malloc(extentSize));
-					DWORD sizeResult;
-					BOOL extentsIoctlOK = DeviceIoControl(
-						hDevice,
-						IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
-						NULL,
-						0,
-						&diskExtents,
-						sizeof(diskExtents),
-						&sizeResult,
-						NULL
-					);
-					
+				DWORD extentSize = 8192; //256 VOLUME_DISK_EXTENTS entries
+				PVOLUME_DISK_EXTENTS diskExtents = NULL;
+
+				diskExtents = static_cast<PVOLUME_DISK_EXTENTS>(LocalAlloc(LPTR, extentSize));
+				if (diskExtents) {
+
+					DWORD dummy = 0;
+					BOOL extentsIoctlOK = DeviceIoControl(hVolume, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, NULL, 0, diskExtents, extentSize, &dummy, NULL);
+
 					if (extentsIoctlOK && diskExtents->NumberOfDiskExtents > 0)
 					{
 						// loop through disks associated with this drive
 						// we want to sum the disk
 						wchar_t physicalPathBuffer[MAX_PATH];
+
 						for (DWORD i = 0; i < diskExtents->NumberOfDiskExtents; i++)
 						{
-							if (wnsprintf(physicalPathBuffer, MAX_PATH, _T("\\\\.\\PhysicalDrive%d"), diskExtents->Extents[i].DiskNumber) <= 0)
+							if (wnsprintf(physicalPathBuffer, MAX_PATH, _T("\\\\.\\PhysicalDrive%u"), diskExtents->Extents[i].DiskNumber) > 0)
 							{
 								// open the physical disk
 								hDevice = CreateFile(
@@ -363,7 +377,7 @@ BOOL dizk_size_deviceiocontrol()
 										NULL, 0,					// no input buffer
 										&size, sizeof(GET_LENGTH_INFORMATION),
 										&lpBytesReturned,			// bytes returned
-										(LPOVERLAPPED)NULL);   // synchronous I/O
+										(LPOVERLAPPED)NULL);		// synchronous I/O
 
 									if (bResult)
 									{
@@ -376,10 +390,12 @@ BOOL dizk_size_deviceiocontrol()
 									{
 										// failed IOCTL call
 										defaultToDrive0 = true;
-										break;
 									}
 
 									CloseHandle(hDevice);
+
+									if (!bResult)
+										break;
 								}
 								else
 								{
@@ -397,8 +413,10 @@ BOOL dizk_size_deviceiocontrol()
 						}
 					}
 
-					CloseHandle(hDrive);
+					LocalFree(diskExtents);
 				}
+
+				CloseHandle(hVolume);
 			}
 		}
 	}
@@ -415,22 +433,19 @@ BOOL dizk_size_deviceiocontrol()
 			0,							// file attributes
 			NULL);						// do not copy file attributes
 
-		if (hDevice == INVALID_HANDLE_VALUE) {
+		if (hDevice != INVALID_HANDLE_VALUE) {
+
+			if (DeviceIoControl(
+				hDevice,					// device to be queried
+				IOCTL_DISK_GET_LENGTH_INFO, // operation to perform
+				NULL, 0,					// no input buffer
+				&size, sizeof(GET_LENGTH_INFORMATION),
+				&lpBytesReturned,			// bytes returned
+				(LPOVERLAPPED)NULL))		// synchronous I/O
+			{
+				totalDiskSize.QuadPart = size.Length.QuadPart;
+			}
 			CloseHandle(hDevice);
-			return FALSE;
-		}
-
-		bResult = DeviceIoControl(
-			hDevice,					// device to be queried
-			IOCTL_DISK_GET_LENGTH_INFO, // operation to perform
-			NULL, 0,					// no input buffer
-			&size, sizeof(GET_LENGTH_INFORMATION),
-			&lpBytesReturned,			// bytes returned
-			(LPOVERLAPPED) NULL);   // synchronous I/O
-
-		if (bResult != NULL)
-		{
-			totalDiskSize.QuadPart = size.Length.QuadPart;
 		}
 	}
 
@@ -439,7 +454,6 @@ BOOL dizk_size_deviceiocontrol()
 	else
 		bResult = FALSE;
 
-	CloseHandle(hDevice);
 	return bResult;
 }
 
@@ -479,37 +493,37 @@ BOOL setupdi_diskdrive()
 				// Double the size to avoid problems on 
 				// W2k MBCS systems per KB 888609. 
 				buffer = (LPTSTR)LocalAlloc(LPTR, dwSize * 2);
+				if (buffer == NULL)
+					break;
 			}
 			else
 				break;
 
 		}
 
-		// Do our comparaison
-		if ((StrStrI(buffer, _T("vbox")) != NULL) ||
-			(StrStrI(buffer, _T("vmware")) != NULL) || 
-			(StrStrI(buffer, _T("qemu")) != NULL) ||
-			(StrStrI(buffer, _T("virtual")) != NULL))
-		{
-			bFound =  TRUE;
-			break;
+		if (buffer) {
+			// Do our comparison
+			if ((StrStrI(buffer, _T("vbox")) != NULL) ||
+				(StrStrI(buffer, _T("vmware")) != NULL) ||
+				(StrStrI(buffer, _T("qemu")) != NULL) ||
+				(StrStrI(buffer, _T("virtual")) != NULL))
+			{
+				bFound = TRUE;
+				break;
+			}
 		}
 	}
 
 	if (buffer)
 		LocalFree(buffer);
 
-	if (GetLastError() != NO_ERROR && GetLastError() != ERROR_NO_MORE_ITEMS)
-		return FALSE;
-
 	//  Cleanup
 	SetupDiDestroyDeviceInfoList(hDevInfo);
 
-	if (bFound)
-		return TRUE;
-
-	else
+	if (GetLastError() != NO_ERROR && GetLastError() != ERROR_NO_MORE_ITEMS)
 		return FALSE;
+
+	return bFound;
 }
 
 
@@ -534,7 +548,7 @@ BOOL mouse_movement() {
 		/* Probably a sandbox, because mouse position did not change. */
 		return TRUE;
 
-	else 
+	else
 		return FALSE;
 }
 
@@ -546,7 +560,7 @@ more tasks at the same time.
 BOOL memory_space()
 {
 	DWORDLONG ullMinRam = (1024LL * (1024LL * (1024LL * 1LL))); // 1GB
-	MEMORYSTATUSEX statex = {0};
+	MEMORYSTATUSEX statex = { 0 };
 
 	statex.dwLength = sizeof(statex);
 	GlobalMemoryStatusEx(&statex);
@@ -583,7 +597,7 @@ Sleep and check if time have been accelerated
 BOOL accelerated_sleep()
 {
 	DWORD dwStart = 0, dwEnd = 0, dwDiff = 0;
-	DWORD dwMillisecondsToSleep = 60*1000;
+	DWORD dwMillisecondsToSleep = 60 * 1000;
 
 	/* Retrieves the number of milliseconds that have elapsed since the system was started */
 	dwStart = GetTickCount();
@@ -598,13 +612,13 @@ BOOL accelerated_sleep()
 	dwDiff = dwEnd - dwStart;
 	if (dwDiff > dwMillisecondsToSleep - 1000) // substracted 1s just to be sure
 		return FALSE;
-	else 
+	else
 		return TRUE;
 }
 
 /*
-The CPUID instruction is a processor supplementary instruction (its name derived from 
-CPU IDentification) for the x86 architecture allowing software to discover details of 
+The CPUID instruction is a processor supplementary instruction (its name derived from
+CPU IDentification) for the x86 architecture allowing software to discover details of
 the processor. By calling CPUID with EAX =1, The 31bit of ECX register if set will
 reveal the precense of a hypervisor.
 */
@@ -614,7 +628,7 @@ BOOL cpuid_is_hypervisor()
 
 	/* Query hypervisor precense using CPUID (EAX=1), BIT 31 in ECX */
 	__cpuid(CPUInfo, 1);
-	if ((CPUInfo[2] >> 31) & 1) 
+	if ((CPUInfo[2] >> 31) & 1)
 		return TRUE;
 	else
 		return FALSE;
@@ -627,8 +641,12 @@ When CPUID is called with EAX=0x40000000, cpuid return the hypervisor signature.
 */
 BOOL cpuid_hypervisor_vendor()
 {
-	INT CPUInfo[4] = {-1};
+	INT CPUInfo[4] = { -1 };
 	CHAR szHypervisorVendor[0x40];
+	WCHAR *pwszConverted;
+
+	BOOL bResult = FALSE;
+
 	const TCHAR* szBlacklistedHypervisors[] = {
 		_T("KVMKVMKVM\0\0\0"),	/* KVM */
 		_T("Microsoft Hv"),		/* Microsoft Hyper-V or Windows Virtual PC */
@@ -650,8 +668,16 @@ BOOL cpuid_hypervisor_vendor()
 
 	for (int i = 0; i < dwlength; i++)
 	{
-		if (_tcscmp(ascii_to_wide_str(szHypervisorVendor), szBlacklistedHypervisors[i]) == 0)
-			return TRUE;
+		pwszConverted = ascii_to_wide_str(szHypervisorVendor);
+		if (pwszConverted) {
+
+			bResult = (_tcscmp(pwszConverted, szBlacklistedHypervisors[i]) == 0);
+
+			free(pwszConverted);
+
+			if (bResult)
+				return TRUE;
+		}
 	}
 
 	return FALSE;
@@ -692,22 +718,28 @@ BOOL serial_number_bios_wmi()
 
 				// Get the value of the Name property
 				hRes = pclsObj->Get(_T("SerialNumber"), 0, &vtProp, 0, 0);
+				if (SUCCEEDED(hRes)) {
+					if (vtProp.vt == VT_BSTR) {
 
-				// Do our comparaison
-				if (
-					(StrStrI(vtProp.bstrVal, _T("VMWare")) != 0) ||
-					(StrStrI(vtProp.bstrVal, _T("0")) != 0) || // VBox
-					(StrStrI(vtProp.bstrVal, _T("Xen")) != 0) ||
-					(StrStrI(vtProp.bstrVal, _T("Virtual")) != 0) ||
-					(StrStrI(vtProp.bstrVal, _T("A M I")) != 0)
-					)
-				{
-					bFound = TRUE;
-					break;
+						// Do our comparison
+						if (
+							(StrStrI(vtProp.bstrVal, _T("VMWare")) != 0) ||
+							(wcscmp(vtProp.bstrVal, _T("0")) == 0) || // VBox (serial is just "0")
+							(StrStrI(vtProp.bstrVal, _T("Xen")) != 0) ||
+							(StrStrI(vtProp.bstrVal, _T("Virtual")) != 0) ||
+							(StrStrI(vtProp.bstrVal, _T("A M I")) != 0)
+							)
+						{
+							VariantClear(&vtProp);
+							pclsObj->Release();
+							bFound = TRUE;
+							break;
+						}
+					}
+					VariantClear(&vtProp);
 				}
 
 				// release the current result object
-				VariantClear(&vtProp);
 				pclsObj->Release();
 			}
 
@@ -757,20 +789,26 @@ BOOL model_computer_system_wmi()
 
 				// Get the value of the Name property
 				hRes = pclsObj->Get(_T("Model"), 0, &vtProp, 0, 0);
+				if (SUCCEEDED(hRes)) {
+					if (vtProp.vt == VT_BSTR) {
 
-				// Do our comparaison
-				if (
-					(StrStrI(vtProp.bstrVal, _T("VirtualBox")) != 0) ||
-					(StrStrI(vtProp.bstrVal, _T("HVM domU")) != 0) || //Xen
-					(StrStrI(vtProp.bstrVal, _T("VMWare")) != 0)
-					)
-				{
-					bFound = TRUE;
-					break;
+						// Do our comparison
+						if (
+							(StrStrI(vtProp.bstrVal, _T("VirtualBox")) != 0) ||
+							(StrStrI(vtProp.bstrVal, _T("HVM domU")) != 0) || //Xen
+							(StrStrI(vtProp.bstrVal, _T("VMWare")) != 0)
+							)
+						{
+							VariantClear(&vtProp);
+							pclsObj->Release();
+							bFound = TRUE;
+							break;
+						}
+					}
+					VariantClear(&vtProp);
 				}
 
 				// release the current result object
-				VariantClear(&vtProp);
 				pclsObj->Release();
 			}
 
@@ -820,21 +858,26 @@ BOOL manufacturer_computer_system_wmi()
 
 				// Get the value of the Name property
 				hRes = pclsObj->Get(_T("Manufacturer"), 0, &vtProp, 0, 0);
+				if (SUCCEEDED(hRes)) {
+					if (vtProp.vt == VT_BSTR) {
 
-				// Do our comparaison
-				if (
-					(StrStrI(vtProp.bstrVal, _T("VMWare")) != 0) || 
-					(StrStrI(vtProp.bstrVal, _T("Xen")) != 0) ||
-					(StrStrI(vtProp.bstrVal, _T("innotek GmbH")) != 0) || // Vbox
-					(StrStrI(vtProp.bstrVal, _T("QEMU")) != 0)
-					)
-				{
-					bFound = TRUE;
-					break;
+						// Do our comparison
+						if (
+							(StrStrI(vtProp.bstrVal, _T("VMWare")) != 0) ||
+							(StrStrI(vtProp.bstrVal, _T("Xen")) != 0) ||
+							(StrStrI(vtProp.bstrVal, _T("innotek GmbH")) != 0) || // Vbox
+							(StrStrI(vtProp.bstrVal, _T("QEMU")) != 0)
+							)
+						{
+							VariantClear(&vtProp);
+							pclsObj->Release();
+							bFound = TRUE;
+							break;
+						}
+					}
+					VariantClear(&vtProp);
 				}
-
 				// release the current result object
-				VariantClear(&vtProp);
 				pclsObj->Release();
 			}
 
@@ -892,8 +935,9 @@ BOOL current_temperature_acpi_wmi()
 				// Get the value of the Name property
 				hRes = pclsObj->Get(_T("CurrentTemperature"), 0, &vtProp, 0, 0);
 				if (SUCCEEDED(hRes)) {
+					VariantClear(&vtProp);
+					pclsObj->Release();
 					break;
-
 				}
 
 				// release the current result object
@@ -947,17 +991,21 @@ BOOL process_id_processor_wmi()
 
 				// Get the value of the Name property
 				hRes = pclsObj->Get(_T("ProcessorId"), 0, &vtProp, 0, 0);
+				if (SUCCEEDED(hRes)) {
 
-				// Do our comparaison
-				if (vtProp.bstrVal== NULL)
-				{
-					bFound = TRUE;
-					break;
+					// Do our comparison
+					if (vtProp.bstrVal == NULL)
+					{
+						bFound = TRUE;
+					}
 				}
-
 				// release the current result object
 				VariantClear(&vtProp);
 				pclsObj->Release();
+
+				// break from while
+				if (bFound)
+					break;
 			}
 
 			// Cleanup
@@ -1005,7 +1053,7 @@ BOOL cpu_fan_wmi()
 	BOOL bStatus = FALSE;
 	HRESULT hRes;
 	BOOL bFound = FALSE;
-	INT iObjCount = 0;
+	ULONG uObjCount = 0;
 
 	// Init WMI
 	bStatus = InitWMI(&pSvc, &pLoc, _T("ROOT\\CIMV2"));
@@ -1026,7 +1074,8 @@ BOOL cpu_fan_wmi()
 					break;
 				}
 				else {
-					iObjCount++;
+					uObjCount++;
+					pclsObj->Release();
 				}
 			}
 
@@ -1038,7 +1087,349 @@ BOOL cpu_fan_wmi()
 		}
 	}
 
-	if (iObjCount <= 0)
+	if (uObjCount == 0)
 		bFound = TRUE;
 	return bFound;
 }
+
+
+/*
+Check Caption from VideoController using WMI
+*/
+BOOL caption_video_controller_wmi()
+{
+	IWbemServices *pSvc = NULL;
+	IWbemLocator *pLoc = NULL;
+	IEnumWbemClassObject* pEnumerator = NULL;
+	BOOL bStatus = FALSE;
+	HRESULT hRes;
+	BOOL bFound = FALSE;
+
+	// Init WMI
+	bStatus = InitWMI(&pSvc, &pLoc, _T("ROOT\\CIMV2"));
+
+	if (bStatus)
+	{
+		// If success, execute the desired query
+		bStatus = ExecWMIQuery(&pSvc, &pLoc, &pEnumerator, _T("SELECT * FROM Win32_VideoController"));
+		if (bStatus)
+		{
+			// Get the data from the query
+			IWbemClassObject *pclsObj = NULL;
+			ULONG uReturn = 0;
+			VARIANT vtProp;
+
+			while (pEnumerator)
+			{
+				hRes = pEnumerator->Next(WBEM_INFINITE, 1, &pclsObj, &uReturn);
+				if (0 == uReturn)
+					break;
+
+				// Get the value of the Name property
+				hRes = pclsObj->Get(_T("Caption"), 0, &vtProp, 0, 0);
+				if (SUCCEEDED(hRes)) {
+					if (vtProp.vt == VT_BSTR) {
+
+						// Do our comparison
+						if (
+							(StrStrI(vtProp.bstrVal, _T("Hyper-V")) != 0) ||
+							(StrStrI(vtProp.bstrVal, _T("VMWare")) != 0)
+							)
+						{
+							VariantClear(&vtProp);
+							pclsObj->Release();
+							bFound = TRUE;
+							break;
+						}
+					}
+					VariantClear(&vtProp);
+				}
+
+				// release the current result object
+				pclsObj->Release();
+			}
+
+			// Cleanup
+			pSvc->Release();
+			pLoc->Release();
+			pEnumerator->Release();
+			CoUninitialize();
+		}
+	}
+
+	return bFound;
+}
+
+/*
+Detect Virtual machine by calling NtQueryLicenseValue with Kernel-VMDetection-Private as license value.
+This detection works on Windows 7 and does not detect Microsoft Hypervisor.
+*/
+BOOL query_license_value()
+{
+	auto RtlInitUnicodeString = static_cast<pRtlInitUnicodeString>(API::GetAPI(API_IDENTIFIER::API_RtlInitUnicodeString));
+	auto NtQueryLicenseValue = static_cast<pNtQueryLicenseValue>(API::GetAPI(API_IDENTIFIER::API_NtQueryLicenseValue));
+
+	if (RtlInitUnicodeString == nullptr || NtQueryLicenseValue == nullptr)
+		return FALSE;
+
+	UNICODE_STRING LicenseValue;
+	RtlInitUnicodeString(&LicenseValue, L"Kernel-VMDetection-Private");
+
+	ULONG Result = 0, ReturnLength;
+
+	NTSTATUS Status = NtQueryLicenseValue(&LicenseValue, NULL, reinterpret_cast<PVOID>(&Result), sizeof(ULONG), &ReturnLength);
+
+	if (NT_SUCCESS(Status)) {
+		return (Result != 0);
+	}
+
+	return FALSE;
+}
+
+int wmi_query_count(const _TCHAR* query)
+{
+	IWbemServices *pSvc = NULL;
+	IWbemLocator *pLoc = NULL;
+	IEnumWbemClassObject* pEnumerator = NULL;
+	BOOL bStatus = FALSE;
+	HRESULT hRes;
+
+	int count = 0;
+
+	// Init WMI
+	bStatus = InitWMI(&pSvc, &pLoc, _T("ROOT\\CIMV2"));
+	if (bStatus)
+	{
+		// If success, execute the desired query
+		bStatus = ExecWMIQuery(&pSvc, &pLoc, &pEnumerator, query);
+		if (bStatus)
+		{
+			// Get the data from the query
+			IWbemClassObject *pclsObj = NULL;
+			ULONG uReturn = 0;
+
+			// Iterate over our enumator
+			while (pEnumerator)
+			{
+				hRes = pEnumerator->Next(WBEM_INFINITE, 1, &pclsObj, &uReturn);
+				if (0 == uReturn)
+					break;
+
+				count++;
+
+				pclsObj->Release();
+			}
+
+			// Cleanup
+			pEnumerator->Release();
+			pSvc->Release();
+			pLoc->Release();
+			CoUninitialize();
+		}
+		else
+		{
+			pSvc->Release();
+			pLoc->Release();
+			CoUninitialize();
+		}
+	}
+	else return -1;
+
+	return count;
+}
+
+/*
+Check Win32_CacheMemory for entries
+*/
+BOOL cachememory_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM Win32_CacheMemory"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check Win32_PhysicalMemory for entries
+*/
+BOOL physicalmemory_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM Win32_PhysicalMemory"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check Win32_MemoryDevice for entries
+*/
+BOOL memorydevice_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM Win32_MemoryDevice"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check Win32_MemoryArray for entries
+*/
+BOOL memoryarray_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM Win32_MemoryArray"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check Win32_VoltageProbe for entries
+*/
+BOOL voltageprobe_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM Win32_VoltageProbe"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check Win32_PortConnector for entries
+*/
+BOOL portconnector_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM Win32_PortConnector"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check Win32_SMBIOSMemory for entries
+*/
+BOOL smbiosmemory_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM Win32_SMBIOSMemory"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check Win32_PerfFormattedData_Counters_ThermalZoneInformation for entries
+*/
+BOOL perfctrs_thermalzoneinfo_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check CIM_Memory for entries
+*/
+BOOL cim_memory_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM CIM_Memory"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check CIM_NumericSensor for entries
+*/
+BOOL cim_numericsensor_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM CIM_NumericSensor"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check CIM_PhysicalConnector for entries
+*/
+BOOL cim_physicalconnector_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM CIM_PhysicalConnector"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check CIM_Sensor for entries
+*/
+BOOL cim_sensor_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM CIM_Sensor"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check CIM_Slot for entries
+*/
+BOOL cim_slot_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM CIM_Slot"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check CIM_TemperatureSensor for entries
+*/
+BOOL cim_temperaturesensor_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM CIM_TemperatureSensor"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
+Check CIM_VoltageSensor for entries
+*/
+BOOL cim_voltagesensor_wmi()
+{
+	int count = wmi_query_count(_T("SELECT * FROM CIM_VoltageSensor"));
+	if (count == 0)
+	{
+		return TRUE;
+	}
+	return FALSE;
+}
+

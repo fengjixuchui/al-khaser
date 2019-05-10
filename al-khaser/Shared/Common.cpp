@@ -117,53 +117,64 @@ VOID print_os()
 	}
 }
 
-VOID print_last_error(LPCTSTR lpszFunction) 
-{ 
-    // Retrieve the system error message for the last-error code
+VOID print_last_error(LPCTSTR lpszFunction)
+{
+	// Retrieve the system error message for the last-error code
 
-    LPVOID lpMsgBuf;
-    LPVOID lpDisplayBuf;
-    DWORD dw = GetLastError(); 
+	LPVOID lpMsgBuf;
+	LPVOID lpDisplayBuf;
+	DWORD dw = GetLastError();
 
-    FormatMessage(			
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | 
-        FORMAT_MESSAGE_FROM_SYSTEM |
-        FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL,
-        dw,
-        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-        (LPTSTR) &lpMsgBuf,
-        0, NULL );
+	if (FormatMessage(
+		FORMAT_MESSAGE_ALLOCATE_BUFFER |
+		FORMAT_MESSAGE_FROM_SYSTEM |
+		FORMAT_MESSAGE_IGNORE_INSERTS,
+		NULL,
+		dw,
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+		(LPTSTR)&lpMsgBuf,
+		0, NULL) == 0)
+	{
+		//FormatMessage failed, return
+		return;
+	}
 
-    // Display the error message and exit the process
+	// Display the error message and exit the process
 
-    lpDisplayBuf = (LPVOID)LocalAlloc(LMEM_ZEROINIT, 
-        (lstrlen((LPCTSTR)lpMsgBuf) + lstrlen((LPCTSTR)lpszFunction) + 40) * sizeof(TCHAR)); 
+	lpDisplayBuf = (LPVOID)LocalAlloc(LMEM_ZEROINIT,
+		(lstrlen((LPCTSTR)lpMsgBuf) + lstrlen((LPCTSTR)lpszFunction) + 40) * sizeof(TCHAR));
 
-    StringCchPrintf((LPTSTR)lpDisplayBuf, 
-        LocalSize(lpDisplayBuf) / sizeof(TCHAR),
-        TEXT("%s failed with error %d: %s"), 
-        lpszFunction, dw, lpMsgBuf); 
+	if (lpDisplayBuf) {
 
-	_tprintf((LPCTSTR)lpDisplayBuf); 
+		StringCchPrintf((LPTSTR)lpDisplayBuf,
+			LocalSize(lpDisplayBuf) / sizeof(TCHAR),
+			TEXT("%s failed with error %u: %s"),
+			lpszFunction, dw, lpMsgBuf);
 
+		_tprintf((LPCTSTR)lpDisplayBuf);
 
-    LocalFree(lpMsgBuf);
-    LocalFree(lpDisplayBuf);
+		LocalFree(lpDisplayBuf);
+	}
+	LocalFree(lpMsgBuf);
 }
 
-TCHAR* ascii_to_wide_str(CHAR* lpMultiByteStr)
+WCHAR* ascii_to_wide_str(CHAR* lpMultiByteStr)
 {
 
 	/* Get the required size */
-	CONST INT iSizeRequired = MultiByteToWideChar(CP_ACP, 0, lpMultiByteStr, -1, NULL, 0);
+	INT iNumChars = MultiByteToWideChar(CP_ACP, 0, lpMultiByteStr, -1, NULL, 0);
 
 	/* Allocate new wide string */
-	TCHAR *lpWideCharStr = new TCHAR[iSizeRequired];
 
-	/* Do the conversion */
-	INT iNumChars =  MultiByteToWideChar(CP_ACP, 0, lpMultiByteStr, -1, lpWideCharStr, iSizeRequired);
+	SIZE_T Size = (1 + iNumChars) * sizeof(WCHAR);
+	
+	WCHAR *lpWideCharStr = reinterpret_cast<WCHAR*>(malloc(Size));
 
+	if (lpWideCharStr) {
+		SecureZeroMemory(lpWideCharStr, Size);
+		/* Do the conversion */
+		iNumChars = MultiByteToWideChar(CP_ACP, 0, lpMultiByteStr, -1, lpWideCharStr, iNumChars);
+	}
 	return lpWideCharStr;
 }
 
