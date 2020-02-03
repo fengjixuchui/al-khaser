@@ -1,3 +1,11 @@
+
+#### 0.80
+
+- Anti anti-debug trick: trap flag.
+- Add check for well known names used by malware sandboxes.
+- Improve ProcessDebugObject anti-debug check thanks to @Mattiwatti
+
+
 #### 0.79
 - Add anti-disassembly trick: Jump with constant condition
 - Add anti-disassembly trick: Jump instruction with same target

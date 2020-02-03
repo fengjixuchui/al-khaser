@@ -23,7 +23,7 @@ int main(void)
 	BOOL	ENABLE_DUMPING_CHECK = TRUE;
 	BOOL	ENABLE_ANALYSIS_TOOLS_CHECK = TRUE;
 	BOOL	ENABLE_ANTI_DISASSM_CHECKS = TRUE;
-
+	
 	/* Resize the console window for better visibility */
 	resize_console_window();
 
@@ -70,6 +70,7 @@ int main(void)
 		exec_check(&SoftwareBreakpoints, TEXT("Checking Software Breakpoints "));
 		exec_check(&Interrupt_0x2d, TEXT("Checking Interupt 0x2d "));
 		exec_check(&Interrupt_3, TEXT("Checking Interupt 1 "));
+		exec_check(&TrapFlag, TEXT("Checking trap flag"));
 		exec_check(&MemoryBreakpoints_PageGuard, TEXT("Checking Memory Breakpoints PAGE GUARD "));
 		exec_check(&IsParentExplorerExe, TEXT("Checking If Parent Process is explorer.exe "));
 		exec_check(&CanOpenCsrss, TEXT("Checking SeDebugPrivilege "));
@@ -104,6 +105,7 @@ int main(void)
 	if (ENABLE_GEN_SANDBOX_CHECKS) {
 		print_category(TEXT("Generic Sandboxe/VM Detection"));
 		loaded_dlls();
+		known_file_names();
 		exec_check(&NumberOfProcessors, TEXT("Checking Number of processors in machine "));
 		exec_check(&idt_trick, TEXT("Checking Interupt Descriptor Table location "));
 		exec_check(&ldt_trick, TEXT("Checking Local Descriptor Table location "));
