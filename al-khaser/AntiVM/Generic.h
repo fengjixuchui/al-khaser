@@ -2,6 +2,9 @@
 
 VOID loaded_dlls();
 VOID known_file_names();
+VOID known_usernames();
+VOID known_hostnames();
+VOID other_known_sandbox_environment_checks();
 BOOL NumberOfProcessors();
 BOOL idt_trick();
 BOOL ldt_trick();
@@ -43,3 +46,5 @@ BOOL cim_slot_wmi();
 BOOL cim_temperaturesensor_wmi();
 BOOL cim_voltagesensor_wmi();
 BOOL pirated_windows();
+BOOL registry_services_disk_enum();
+BOOL registry_disk_enum();

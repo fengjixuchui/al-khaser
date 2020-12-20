@@ -108,6 +108,9 @@ int main(void)
 		print_category(TEXT("Generic Sandboxe/VM Detection"));
 		loaded_dlls();
 		known_file_names();
+		known_usernames();
+		known_hostnames();
+		other_known_sandbox_environment_checks();
 		exec_check(&NumberOfProcessors, TEXT("Checking Number of processors in machine "));
 		exec_check(&idt_trick, TEXT("Checking Interupt Descriptor Table location "));
 		exec_check(&ldt_trick, TEXT("Checking Local Descriptor Table location "));
@@ -148,6 +151,8 @@ int main(void)
 		exec_check(&cim_physicalconnector_wmi, TEXT("Checking CIM_PhysicalConnector with WMI "));
 		exec_check(&cim_slot_wmi, TEXT("Checking CIM_Slot with WMI "));
 		exec_check(&pirated_windows, TEXT("Checking if Windows is Genuine "));
+		exec_check(&registry_services_disk_enum, TEXT("Checking Services\\Disk\\Enum entries for VM strings "));
+		exec_check(&registry_disk_enum, TEXT("Checking Enum\\IDE and Enum\\SCSI entries for VM strings "));
 	}
 
 	/* VirtualBox Detection */
